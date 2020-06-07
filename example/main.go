@@ -2,9 +2,11 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	. "github.com/daniel840829/eventcore"
 )
@@ -64,11 +66,11 @@ func main() {
 			}
 			os.Exit(0)
 		default:
-			// e := NewEventTest()
-			// e.Message = "Hi"
-			// e.CostumeField = fmt.Sprintf("no:%d", i)
-			// hub2.Emit(e)
-			//time.Sleep(1 * time.Second)
+			e := NewEventTest()
+			e.Message = "Hi"
+			e.CostumeField = fmt.Sprintf("no:%d", i)
+			hub2.Emit(e)
+			time.Sleep(1 * time.Second)
 		}
 	}
 }

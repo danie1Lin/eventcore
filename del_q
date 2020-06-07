@@ -1,9 +1,0 @@
-Timeout: 60.0 seconds ...
-Listing queues for vhost / ...
-name	messages
-main.EventTest_b4054342-224e-4277-adc8-66cbddf25d49	18
-main.EventTest_a9585f17-3bb0-4938-a03b-d55e595a14a1	119
-main.EventTest_fd600c3b-3157-4ebd-9cef-0712650b9adf	119
-main.EventTest_09829f10-16eb-415a-831f-77c9f7b995db	18
-main.EventTest_f007bf0b-8664-4fd8-9fd1-2e750d93a256	0
-main.EventTest_f7f67d5c-b45a-4e9f-82ef-2de53ec38bc6	0
