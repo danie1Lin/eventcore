@@ -34,16 +34,20 @@ func (rs *EventReceivers) Loop(f func(e Event) error) error {
 			case msg, ok := <-r:
 				if !ok {
 					rs.Delete(key)
+					level.Info(Logger).Log("message", "topic reciever close")
 					return true
 				}
+				level.Debug(Logger).Log("received message", msg.UUID, "payload", msg.Payload)
 				var e Event = &EventBase{}
 				e, err = e.Unserialize(msg.Payload)
 				if err != nil {
-					level.Error(Logger).Log(err)
+					level.Error(Logger).Log("error", err)
+					return true
 				}
 				level.Debug(Logger).Log("received message", msg.UUID, "event", e)
 				if err := f(e); err != nil {
-					level.Error(Logger).Log(err)
+					level.Error(Logger).Log("error", err)
+					return true
 				}
 				msg.Ack()
 			default:
@@ -95,6 +99,7 @@ func (h *EventCenterCluster) Subscribe(eventType EventType, handler EventHandler
 }
 
 func (h *EventCenterCluster) Emit(event Event) {
+	event.BindSelf(event)
 	payload, err := event.Serialize()
 	if err != nil {
 		level.Error(Logger).Log(err)

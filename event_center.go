@@ -30,7 +30,7 @@ func (h *EventCenter) Emit(event Event) error {
 	if handlers, ok := h.eventHandlers[event.GetType()]; ok {
 		for _, handler := range handlers {
 			if err := handler(event); err != nil {
-				level.Error(Logger).Log(err)
+				level.Error(Logger).Log("error", err)
 				return err
 			}
 		}

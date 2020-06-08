@@ -7,13 +7,13 @@ import (
 	"github.com/go-kit/kit/log/level"
 )
 
-
 var Logger log.Logger
 var Debug bool
 
 func init() {
+	Debug = true
 	Logger = log.NewJSONLogger(os.Stdout)
-	Logger = log.With(Logger, "ts", log.DefaultTimestampUTC, "caller", log.DefaultCaller)
+	Logger = log.With(Logger, "ts", log.DefaultTimestampUTC, "caller", log.Caller(5))
 	if Debug {
 		Logger = level.NewFilter(Logger, level.AllowDebug())
 	} else {

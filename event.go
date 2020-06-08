@@ -9,7 +9,6 @@ type EventUnserializer func([]byte) (Event, error)
 type Event interface {
 	GetType() EventType
 	Serialize() ([]byte, error)
-	Unserialize([]byte) (Event, error)
-	ParentSerialize() ([]byte, error)
-	ParentUnserializer() EventUnserializer
+	BindSelf(Event)
+	Unserialize(data []byte) (Event, error)
 }

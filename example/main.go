@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"os/signal"
@@ -10,6 +9,9 @@ import (
 
 	. "github.com/daniel840829/eventcore"
 )
+
+func init() {
+}
 
 var amqpURI = "amqp://guest:guest@localhost:5672/"
 
@@ -22,44 +24,27 @@ type EventTest struct {
 func NewEventTest() *EventTest {
 	e := &EventTest{}
 	// binding event in EventBase to let EventBase serialize your custome event
-	e.EventBase.Event = e
+	e.BindSelf(e)
 	return e
 }
 
-// you must implement your ParentUnserializer to let EventCenter unserialize your custome event
-func (e *EventTest) ParentUnserializer() EventUnserializer {
-	return func(data []byte) (Event, error) {
-		e := &EventTest{}
-
-		// You can use your way to umarshal. It's not necessary to be json.
-		// But if you want to use other way, you need to override Serialize() method to package it.
-		if err := json.Unmarshal(data, e); err != nil {
-			return nil, err
-		}
-		// rebind event
-		e.EventBase.Event = e
-		return e, nil
-	}
-}
-
 func main() {
-	Debug = true
 
 	// You can customize your backend which implements Backend interface.
 	hub1 := NewEventCenterCluster(NewAmqpBackend(amqpURI))
 	hub2 := NewEventCenterCluster(NewAmqpBackend(amqpURI))
 
 	// Register Event type
-	RegisterEvent(NewEventTest())
+	eventType := RegisterEvent(NewEventTest())
 
 	// Subscribe event in event center with hanlder
-	hub1.Subscribe(NewEventTest().GetType(), func(e Event) error {
+	hub1.Subscribe(eventType, func(e Event) error {
 		Logger.Log("hub1", e)
 		return nil
 	}, "hub1")
 
 	// hub1 and hub2 can both receive same event
-	hub2.Subscribe(NewEventTest().GetType(), func(e Event) error {
+	hub2.Subscribe(eventType, func(e Event) error {
 		Logger.Log("hub2", e)
 		return nil
 	}, "hub2")
@@ -79,7 +64,6 @@ func main() {
 			os.Exit(0)
 		default:
 			e := NewEventTest()
-			e.Message = "Hi"
 			e.CostumeField = fmt.Sprintf("no:%d", i)
 			// Emit the event
 			hub2.Emit(e)
