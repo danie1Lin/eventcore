@@ -5,9 +5,9 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
 	. "github.com/daniel840829/eventcore"
+	"github.com/google/uuid"
 )
 
 func init() {
@@ -29,10 +29,12 @@ func NewEventTest() *EventTest {
 }
 
 func main() {
-
+	DebugMode()
 	// You can customize your backend which implements Backend interface.
-	hub1 := NewEventCenterCluster(NewAmqpBackend(amqpURI))
-	hub2 := NewEventCenterCluster(NewAmqpBackend(amqpURI))
+	uid1, _ := uuid.Parse("2917bd76-31ec-4546-8465-2e14cf825d65")
+	hub1 := NewEventCenterCluster(NewAmqpBackend(amqpURI), 4, uid1)
+	uid2, _ := uuid.Parse("a68a9790-7a94-4253-b145-c6e7c2853e5f")
+	hub2 := NewEventCenterCluster(NewAmqpBackend(amqpURI), 1, uid2)
 
 	// Register Event type
 	eventType := RegisterEvent(NewEventTest())
@@ -67,7 +69,7 @@ func main() {
 			e.CostumeField = fmt.Sprintf("no:%d", i)
 			// Emit the event
 			hub2.Emit(e)
-			time.Sleep(1 * time.Second)
+			//time.Sleep(1 * time.Second)
 		}
 	}
 }

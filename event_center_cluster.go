@@ -62,14 +62,16 @@ func (h *EventCenterCluster) UUID() uuid.UUID {
 	return h.uuid
 }
 
-func NewEventCenterCluster(backend Backend) *EventCenterCluster {
+func NewEventCenterCluster(backend Backend, workers int, uuid uuid.UUID) *EventCenterCluster {
 	h := &EventCenterCluster{
-		uuid:      uuid.New(),
+		uuid:      uuid,
 		receivers: &EventReceivers{},
 		Backend:   backend,
 	}
 	h.init(backend)
-	go h.Run()
+	for i := 0; i < workers; i++ {
+		go h.Run()
+	}
 	return h
 }
 

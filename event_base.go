@@ -37,7 +37,6 @@ func (b *EventBase) Unserialize(data []byte) (Event, error) {
 			return e, nil
 		}
 	}
-
 	return nil, errors.New("unknow event type")
 }
 
