@@ -1,16 +1,12 @@
 package main
 
 import (
-	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
 
 	. "github.com/daniel840829/eventcore"
-	"github.com/daniel840829/eventcore/proto"
 	"github.com/google/uuid"
-	"github.com/improbable-eng/grpc-web/go/grpcweb"
-	"google.golang.org/grpc"
 )
 
 func init() {
@@ -54,25 +50,7 @@ func main() {
 		return nil
 	}, "hub2")
 
-	grpcServer := grpc.NewServer()
-	proto.RegisterEventCenterServer(grpcServer, &EventCenterServer{
-		EventCenter: &hub1.EventCenter,
-	})
-	wrappedGrpc := grpcweb.WrapServer(grpcServer)
-	http.HandleFunc("/", func(resp http.ResponseWriter, req *http.Request) {
-		if wrappedGrpc.IsGrpcWebRequest(req) {
-			wrappedGrpc.ServeHTTP(resp, req)
-		}
-		// Fall back to other servers.
-		//		http.DefaultServeMux.ServeHTTP(resp, req)
-	})
-	http.HandleFunc("/main.html", func(w http.ResponseWriter, r *http.Request) {
-		http.ServeFile(w, r, "webclient/main.html")
-	})
-	http.HandleFunc("/dist/main.js", func(w http.ResponseWriter, r *http.Request) {
-		http.ServeFile(w, r, "webclient/dist/main.js")
-	})
-	go http.ListenAndServe(":8080", nil)
+	go StartWebsocketServer(hub1)
 
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)

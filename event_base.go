@@ -2,7 +2,7 @@ package eventcore
 
 import (
 	"encoding/json"
-	"errors"
+	"fmt"
 	"reflect"
 	//log "github.com/sirupsen/logrus"
 )
@@ -37,7 +37,7 @@ func (b *EventBase) Unserialize(data []byte) (Event, error) {
 			return e, nil
 		}
 	}
-	return nil, errors.New("unknow event type")
+	return nil, fmt.Errorf("unknow event type %s", b.Type)
 }
 
 func (b *EventBase) Serialize() (data []byte, err error) {
