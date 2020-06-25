@@ -11,7 +11,21 @@ type EventBase struct {
 	Message string
 	Type    EventType
 	Emitter string
+	From    string
 	Event   Event `json:"-"`
+	Traces  []DispatcherInfo
+}
+
+func (b *EventBase) AddNode(d DispatcherInfo) {
+	if b.Traces == nil {
+		b.Traces = []DispatcherInfo{d}
+	} else {
+		b.Traces = append(b.Traces, d)
+	}
+}
+
+func (b *EventBase) GetSourceID() string {
+	return b.From
 }
 
 func (b *EventBase) Base() *EventBase {
@@ -33,7 +47,7 @@ func (b *EventBase) Unserialize(data []byte) (Event, error) {
 		if e, err := f(data); err != nil {
 			return nil, err
 		} else {
-			e.BindSelf(b)
+			e.BindSelf(e)
 			return e, nil
 		}
 	}

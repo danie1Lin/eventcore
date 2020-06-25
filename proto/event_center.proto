@@ -1,0 +1,26 @@
+syntax = "proto3";
+
+option go_package = ".;proto";
+
+message EventPayload {
+    string type = 1;
+    bytes content = 2;
+}
+
+message SubscriptInfo {
+    string eventType = 1;
+    string clientID = 2;
+    bytes condition = 3;
+}
+
+message SubscriptResult {
+    string clientID = 2;
+    string token = 4;
+    bool success = 1;
+    string error = 3;
+}
+
+service EventCenter {
+    rpc Subscript(SubscriptInfo) returns (SubscriptResult){}
+    rpc EventTunnel(stream EventPayload) returns (stream EventPayload) {}
+}

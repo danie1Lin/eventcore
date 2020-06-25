@@ -11,14 +11,12 @@ import (
 	"github.com/google/uuid"
 )
 
-type Dispatcher interface {
-}
-
 type EventCenterCluster struct {
 	uuid uuid.UUID
 	EventCenter
 	Backend
 	receivers *EventReceivers
+	server    *EventCenterWebsocketServer
 }
 
 type Receiver <-chan *message.Message
@@ -37,7 +35,7 @@ func (rs *EventReceivers) Loop(f func(e Event) error) error {
 					level.Info(Logger).Log("message", "topic reciever close")
 					return true
 				}
-				level.Debug(Logger).Log("received message", msg.UUID, "payload", msg.Payload)
+				level.Debug(Logger).Log("received message", msg.UUID, "payload", string(msg.Payload))
 				var e Event = &EventBase{}
 				e, err = e.Unserialize(msg.Payload)
 				if err != nil {
@@ -83,8 +81,8 @@ func (h *EventCenterCluster) Run() {
 	logger := log.With(Logger, "event_center_id", h.uuid)
 	for {
 		h.receivers.Loop(func(e Event) error {
-			h.EventCenter.Emit(e)
-			logger.Log("event", e)
+			h.Dispatch(e)
+			level.Info(logger).Log("event", e)
 			return nil
 		})
 	}
@@ -100,7 +98,15 @@ func (h *EventCenterCluster) Subscribe(eventType EventType, handler EventHandler
 	return nil
 }
 
+func (h *EventCenterCluster) Dispatch(event Event) {
+	if h.server != nil {
+		h.server.Emit(event)
+	}
+	h.EventCenter.Emit(event)
+}
+
 func (h *EventCenterCluster) Emit(event Event) {
+	event.AddNode(h.GetInfo())
 	event.BindSelf(event)
 	payload, err := event.Serialize()
 	if err != nil {
@@ -114,5 +120,13 @@ func (h *EventCenterCluster) Stop() {
 	err := h.Backend.Close()
 	if err != nil {
 		level.Error(Logger).Log(err)
+	}
+}
+
+func (h *EventCenterCluster) GetInfo() DispatcherInfo {
+	return DispatcherInfo{
+		Name: "EventCenterCluster",
+		ID:   h.uuid.String(),
+		Type: "EventCenterCluster",
 	}
 }

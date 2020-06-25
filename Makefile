@@ -20,3 +20,7 @@ cleanup:## Clean up rabbitmq's queue and exchange after run example
 build_pb: 
 	protoc -I $(pb_path) $(pb_file) --go_out=plugins=grpc:proto
 	protoc -I $(pb_path) $(pb_file) --js_out=import_style=commonjs:webclient/ --grpc-web_out=import_style=commonjs,mode=grpcwebtext:webclient/
+
+.PHONY: web
+web:
+	cd web && ./node_modules/.bin/webpack --mode development --watch

@@ -1,9 +1,11 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	. "github.com/daniel840829/eventcore"
 	"github.com/google/uuid"
@@ -16,7 +18,8 @@ var amqpURI = "amqp://guest:guest@localhost:5672/"
 
 // You can customize your event
 type EventTest struct {
-	EventBase           // embedding EventBase to have basic function
+	EventBase    // embedding EventBase to have basic function
+	FromServer   bool
 	CostumeField string // add whatever fields you need to add
 }
 
@@ -45,12 +48,12 @@ func main() {
 	}, "hub1")
 
 	// hub1 and hub2 can both receive same event
-	hub2.Subscribe(eventType, func(e Event) error {
-		Logger.Log("hub2", e)
-		return nil
-	}, "hub2")
+	// hub2.Subscribe(eventType, func(e Event) error {
+	// 	Logger.Log("hub2", e)
+	// 	return nil
+	// }, "hub2")
 
-	go StartWebsocketServer(hub1)
+	go StartWebsocketServer(hub1, "7000")
 
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
@@ -66,11 +69,12 @@ func main() {
 			}
 			os.Exit(0)
 		default:
-			// e := NewEventTest()
-			// e.CostumeField = fmt.Sprintf("no:%d", i)
-			// // Emit the event
-			// hub2.Emit(e)
-			// //time.Sleep(1 * time.Second)
+			e := NewEventTest()
+			e.CostumeField = fmt.Sprintf("no:%d", i)
+			e.FromServer = true
+			// Emit the event
+			hub2.Emit(e)
+			time.Sleep(10 * time.Second)
 		}
 	}
 }

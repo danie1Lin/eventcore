@@ -15,5 +15,5 @@ func init() {
 }
 
 func DebugMode() {
-	Logger = level.NewFilter(Logger, level.AllowDebug())
+	Logger = level.NewFilter(Logger, level.AllowWarn())
 }
