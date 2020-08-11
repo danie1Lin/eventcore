@@ -1,13 +1,12 @@
 package main
 
 import (
-	"fmt"
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
 	. "github.com/daniel840829/eventcore"
+	"github.com/go-kit/kit/log/level"
 	"github.com/google/uuid"
 )
 
@@ -30,20 +29,34 @@ func NewEventTest() *EventTest {
 	return e
 }
 
+type EventChat struct {
+	EventBase // embedding EventBase to have basic function
+	Message   string
+	ToID      string
+}
+
+func NewEventChat() *EventChat {
+	e := &EventChat{}
+	// binding event in EventBase to let EventBase serialize your custome event
+	e.BindSelf(e)
+	return e
+}
+
 func main() {
 	DebugMode()
+	// Register Event type
+	//
+	eventType := RegisterEvent(NewEventTest())
+	RegisterEvent(NewEventChat())
 	// You can customize your backend which implements Backend interface.
 	uid1, _ := uuid.Parse("2917bd76-31ec-4546-8465-2e14cf825d65")
 	hub1 := NewEventCenterCluster(NewAmqpBackend(amqpURI), 4, uid1)
 	uid2, _ := uuid.Parse("a68a9790-7a94-4253-b145-c6e7c2853e5f")
 	hub2 := NewEventCenterCluster(NewAmqpBackend(amqpURI), 1, uid2)
 
-	// Register Event type
-	eventType := RegisterEvent(NewEventTest())
-
 	// Subscribe event in event center with hanlder
 	hub1.Subscribe(eventType, func(e Event) error {
-		Logger.Log("hub1", e)
+		level.Info(Logger).Log("hub1", e)
 		return nil
 	}, "hub1")
 
@@ -60,21 +73,26 @@ func main() {
 	for i := 0; ; i++ {
 		select {
 		case <-quit:
-			Logger.Log("message", "quit")
+			level.Info(Logger).Log("message", "quit")
 			if err := hub1.Close(); err != nil {
-				Logger.Log("error", err)
+				level.Error(Logger).Log("error", err)
 			}
 			if err := hub2.Close(); err != nil {
-				Logger.Log("error", err)
+				level.Error(Logger).Log("error", err)
 			}
 			os.Exit(0)
 		default:
-			e := NewEventTest()
-			e.CostumeField = fmt.Sprintf("no:%d", i)
-			e.FromServer = true
-			// Emit the event
-			hub2.Emit(e)
-			time.Sleep(10 * time.Second)
+			// e := NewEventTest()
+			// e.CostumeField = fmt.Sprintf("no:%d", i)
+			// e.FromServer = true
+			// // Emit the event
+			// hub2.Emit(e)
+			// time.Sleep(2 * time.Second)
+
+			// e1 := NewEventChat()
+			// e1.Message = fmt.Sprintf("no:%d", i)
+			// hub2.Emit(e1)
+			// time.Sleep(2 * time.Second)
 		}
 	}
 }

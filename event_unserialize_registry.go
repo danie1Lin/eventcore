@@ -6,6 +6,11 @@ import (
 	"sync"
 )
 
+type EventInfo struct {
+	Type  string
+	Event Event
+}
+
 func makeJsonUnserializer(e Event) EventUnserializer {
 	_type := reflect.Indirect(reflect.ValueOf(e)).Type()
 	return func(data []byte) (Event, error) {
@@ -20,6 +25,7 @@ func makeJsonUnserializer(e Event) EventUnserializer {
 
 type eventUnserailizeRegistry struct {
 	sync.Map
+	eventInstanceMap sync.Map
 }
 
 var eventUnserailizers *eventUnserailizeRegistry
@@ -37,6 +43,18 @@ func (s *eventUnserailizeRegistry) setUnserializer(eventType EventType, unserial
 	s.Store(eventType, unserializer)
 }
 
+func GetEventInfoList() (eventInfos []EventInfo) {
+	eventInfos = make([]EventInfo, 0)
+	eventUnserailizers.eventInstanceMap.Range(func(k, v interface{}) bool {
+		eventInfos = append(eventInfos, EventInfo{
+			Type:  string(k.(EventType)),
+			Event: v.(Event),
+		})
+		return true
+	})
+	return
+}
+
 func init() {
 	eventUnserailizers = &eventUnserailizeRegistry{}
 }
@@ -49,5 +67,6 @@ func RegisterEvent(e Event, unserializer ...EventUnserializer) EventType {
 		return e.GetType()
 	}
 	eventUnserailizers.setUnserializer(e.GetType(), makeJsonUnserializer(e))
+	eventUnserailizers.eventInstanceMap.Store(e.GetType(), e)
 	return e.GetType()
 }

@@ -61,6 +61,48 @@ func (l *EventCenterClientList) AppendIfNonExist(ID string) bool {
 	return true
 }
 
+func (l *EventCenterClientList) Remove(clientID string) {
+	l.Lock()
+	defer l.Unlock()
+	idx := -1
+	for i, v := range l.list {
+		if v == clientID {
+			idx = i
+			break
+		}
+	}
+	if idx == -1 {
+		return
+	}
+	if idx+1 >= len(l.list) {
+		l.list = l.list[:idx]
+		return
+	}
+	l.list = append(l.list[:idx], l.list[idx+1:]...)
+	return
+}
+
+func (l *EventCenterClientList) Dup(clientID string) (copy []string) {
+	l.RLock()
+	defer l.RUnlock()
+	copy = make([]string, len(l.list))
+	for i, v := range l.list {
+		copy[i] = v
+	}
+	return
+}
+
+func (l *EventCenterClientList) Find(clientID string) int {
+	l.RLock()
+	defer l.RUnlock()
+	for i, v := range l.list {
+		if v == clientID {
+			return i
+		}
+	}
+	return -1
+}
+
 func (l *EventCenterClientList) Range(f func(clientID string) bool) {
 	l.RLock()
 	defer l.RUnlock()

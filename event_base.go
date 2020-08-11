@@ -25,7 +25,11 @@ func (b *EventBase) AddNode(d DispatcherInfo) {
 }
 
 func (b *EventBase) GetSourceID() string {
-	return b.From
+	if b.Traces == nil || len(b.Traces) == 0 {
+		return ""
+	} else {
+		return b.Traces[0].ID
+	}
 }
 
 func (b *EventBase) Base() *EventBase {

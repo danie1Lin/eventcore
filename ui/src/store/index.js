@@ -8,5 +8,4 @@ export default new Vuex.Store({
     eventCenter
   },
   strict: debug
-  //plugins: debug ? [createLogger()] : [],
 });

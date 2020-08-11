@@ -1,5 +1,8 @@
 const axios = require("axios").default;
 const _ = require("lodash");
+const request = axios.create({
+  headers: { "Content-Type": "application/json" }
+});
 
 const state = () => ({
   clientID: null,
@@ -19,7 +22,8 @@ const state = () => ({
   wsState: "closed",
   infos: [],
   loading: false,
-  eventTypes: ["main.EventTest"]
+  eventTypes: ["main.EventTest"],
+  eventInfoMap: new Map()
 });
 
 const getters = {
@@ -28,31 +32,102 @@ const getters = {
   },
   groupEventByType: state => type => {
     return state.events.find(e => e.type == type);
+  },
+  allEventTypes: state => {
+    return [...state.eventInfoMap.keys()].map(k => {
+      let e = { isSubscribed: false, type: k, text: k, value: k };
+      if (state.eventFuncs.has(k)) {
+        e.isSubscribed = true;
+      }
+      return e;
+    });
   }
 };
 
 const actions = {
-  async subscript({ commit, state }, { type, cb }) {
-    const data = { eventType: type, clientID: state.clientID };
-    const result = await axios({
-      method: "POST",
-      url: `http://${state.host}:${state.port}/subscript`,
-      contentType: "application/json",
-      data: JSON.stringify(data)
-    }).catch(e => {
-      commit("addError", e);
-      commit("toggleLoading");
-      throw e;
-    });
-    if (result?.data?.success) {
+  async login({ commit, state }) {
+    const result = await request.post(
+      `http://${state.host}:${state.port}/login`
+    );
+    if (result?.data?.clientID) {
       commit("setClientID", result.data.clientID);
+    }
+  },
+  async getToken({ commit, state }) {
+    const result = await request.get(
+      `http://${state.host}:${state.port}/eventTunnel/token`,
+      {
+        headers: { "X-Client-ID": state.clientID }
+      }
+    );
+    if (result?.data?.token) {
       commit("setToken", result.data.token);
+    }
+  },
+  async getEventList({ commit, state }) {
+    const result = await request
+      .get(`http://${state.host}:${state.port}/events`, {
+        headers: { "X-Client-ID": state.clientID }
+      })
+      .catch(e => {
+        commit("addError", e);
+        commit("toggleLoading");
+        throw e;
+      });
+    if (result?.data && _.isArray(result.data)) {
+      const list = result.data.reduce((map, eventInfo) => {
+        return map.set(eventInfo.Type, eventInfo);
+      }, new Map());
+      commit("updateEventLists", list);
+    }
+  },
+
+  async getSubscript({ state, commit }) {
+    const result = await request
+      .get(`http://${state.host}:${state.port}/subscript`, {
+        headers: { "X-Client-ID": state.clientID }
+      })
+      .catch(e => {
+        commit("addError", e);
+        commit("toggleLoading");
+        throw e;
+      });
+    if (result?.data && _.isArray(result.data)) {
+      commit("updateSubscription", result.data);
+    }
+  },
+  async unsubscript({ commit, state }, type) {
+    const data = { eventType: type };
+    const result = await request
+      .post(`http://${state.host}:${state.port}/subscript/cancel`, data, {
+        headers: { "X-Client-ID": state.clientID }
+      })
+      .catch(e => {
+        commit("addError", e);
+        commit("toggleLoading");
+        throw e;
+      });
+    if (result?.data?.success) {
+      commit("removeSubscription", type);
+    }
+  },
+  async subscript({ commit, state }, { type, cb }) {
+    const data = { eventType: type };
+    const result = await request
+      .post(`http://${state.host}:${state.port}/subscript`, data, {
+        headers: { "X-Client-ID": state.clientID }
+      })
+      .catch(e => {
+        commit("addError", e);
+        commit("toggleLoading");
+        throw e;
+      });
+    if (result?.data?.success) {
       commit("addSubscription", {
         type,
         cb
       });
     }
-    commit("setLoading", true);
   },
   eventTunnel({ dispatch, commit, state }) {
     try {
@@ -72,6 +147,8 @@ const actions = {
       commit("addError", e);
       commit("toggleLoading");
       throw e;
+    } finally {
+      commit("setToken", null);
     }
   },
   InitWs({ dispatch, commit }, ws) {
@@ -98,26 +175,18 @@ const actions = {
     }
   },
   sendEvent({ state }, event) {
-    state.ws.send(
-      JSON.stringify(
-        _.merge(event, {
-          traces: [
-            {
-              name: "websocket_client",
-              type: "websocket_client",
-              id: state.clientID
-            }
-          ]
-        })
-      )
-    );
+    state.ws.send(JSON.stringify(event));
   },
-  close({ state }) {
+  close({ state, commit }) {
     state.ws.close();
+    commit("clearSubscription");
   }
 };
 
 const mutations = {
+  updateEventLists(state, eventList) {
+    state.eventInfoMap = eventList;
+  },
   cleanEvents(state) {
     state.events = [];
   },
@@ -156,10 +225,21 @@ const mutations = {
   addSubscription(state, { type, cb }) {
     let fs = state.eventFuncs.get(type);
     if (fs && _.isArray(fs)) {
-      fs.append(cb);
+      fs.push(cb);
+      state.eventFuncs = new Map(state.eventFuncs.set(type, fs));
     } else {
-      state.eventFuncs.set(type, [cb]);
+      state.eventFuncs = new Map(state.eventFuncs.set(type, [cb]));
     }
+  },
+  removeSubscription(state, type) {
+    if (!state.eventFuncs.delete(type)) {
+      throw new Error("not deleted");
+    }
+    state.eventFuncs = new Map(state.eventFuncs);
+  },
+  updateSubscription() {},
+  clearSubscription(state) {
+    state.eventFuncs = new Map();
   }
 };
 

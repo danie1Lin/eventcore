@@ -92,23 +92,40 @@
           </v-sheet>
         </v-col>
         <v-col cols="6">
-          <v-form ref="form" :lazy-validation="true">
-            <v-overflow-btn
-              class="my-2"
-              :items="eventTypes"
-              label="Event Type"
-              v-model="eventToSend.type"
-            ></v-overflow-btn>
-            <v-textarea
-              label="Event Body"
-              v-model="eventToSend.body"
-              :rules="eventDataRules"
-              @keyup="formatJson"
-            ></v-textarea>
-            <v-btn color="green" class="mr-4" @click="sendEvent">
-              Send Event
-            </v-btn>
-          </v-form>
+          <v-row>
+            <v-col>
+              <v-form ref="form" :lazy-validation="true">
+                <v-overflow-btn
+                  class="my-2"
+                  :items="allEventTypes"
+                  label="Event Type"
+                  v-model="eventToSend.type"
+                >
+                </v-overflow-btn>
+                <v-textarea
+                  label="Event Body"
+                  v-model="eventToSend.body"
+                  :rules="eventDataRules"
+                  @keyup="formatJson"
+                ></v-textarea>
+                <v-btn color="green" class="mr-4" @click="sendEvent">
+                  Send Event
+                </v-btn>
+              </v-form>
+            </v-col>
+          </v-row>
+          <v-row>
+            <v-col>
+              <v-checkbox
+                v-for="(event, i) in allEventTypes"
+                :label="event.type"
+                :value="event.isSubscribed"
+                :key="i"
+                @change="toggleSubscription(event.type)"
+                >{{ event.type }}</v-checkbox
+              >
+            </v-col>
+          </v-row>
         </v-col>
       </v-row>
     </v-main>
@@ -116,7 +133,7 @@
 </template>
 
 <script>
-import { mapGetters, mapMutations, mapState } from "vuex";
+import { mapGetters, mapMutations, mapState, mapActions } from "vuex";
 //import JsonEditor from 'vue-json-ui-editor'
 export default {
   name: "App",
@@ -183,12 +200,30 @@ export default {
     connectionState() {
       return this.$store.state.eventCenter.wsState;
     },
-    ...mapGetters("eventCenter", {
-      events: "allEvents"
-    }),
-    ...mapState("eventCenter", ["loading", "eventTypes", "clientID", "infos"])
+    ...mapGetters("eventCenter", ["allEvents", "allEventTypes"]),
+    ...mapState("eventCenter", [
+      "loading",
+      "eventTypes",
+      "clientID",
+      "infos",
+      "eventMap",
+      "events",
+      "eventFuncs"
+    ])
   },
   methods: {
+    toggleSubscription(eventType) {
+      if (this.eventFuncs.has(eventType)) {
+        this.unsubscript(eventType);
+      } else {
+        this.subscript({
+          type: eventType,
+          cb: e => {
+            console.log(e);
+          }
+        });
+      }
+    },
     formatJson(event) {
       try {
         const s = this.eventToSend.body;
@@ -222,12 +257,19 @@ export default {
     ...mapMutations("eventCenter", [
       "cleanEvents",
       "toggleLoading",
-      "dismissError"
+      "dismissError",
+      "initClient",
+      "setLoading"
+    ]),
+    ...mapActions("eventCenter", [
+      "getEventList",
+      "unsubscript",
+      "subscript",
+      "getToken",
+      "login",
+      "eventTunnel"
     ]),
     sendEvent() {
-      this.eventToSend;
-      let event = null;
-
       try {
         if (
           !this.$store.state.eventCenter.ws ||
@@ -235,8 +277,8 @@ export default {
         ) {
           throw new Error("not connect server");
         }
-        this.$_.merge(
-          { clientID: this.clientID, type: this.eventToSend.type },
+        const event = this.$_.merge(
+          { Type: this.eventToSend.type },
           JSON.parse(this.eventToSend.body)
         );
         this.$store.dispatch("eventCenter/sendEvent", event);
@@ -248,23 +290,34 @@ export default {
       console.log(event);
     },
     connect() {
-      this.toggleLoading();
+      this.setLoading(true);
       if (this.$store.state.eventCenter.wsState == "closed") {
-        this.$store.commit("eventCenter/initClient", {
+        this.initClient({
           host: this.host,
           port: this.port
         });
-        this.$store
-          .dispatch("eventCenter/subscript", {
-            type: "main.EventTest",
-            cb: event => {
-              window.console.log(event);
-              //   let e = this.$_.clone(event);
-              //   e.CostumeField = "Helllllllo";
-              //   this.$store.dispatch("eventCenter/sendEvent", e);
-            }
+        this.login()
+          .then(this.getEventList)
+          .then(() => {
+            return this.subscript({
+              type: "main.EventTest",
+              cb: event => {
+                window.console.log(event);
+                //   let e = this.$_.clone(event);
+                //   e.CostumeField = "Helllllllo";
+                //   this.$store.dispatch("eventCenter/sendEvent", e);
+              }
+            });
           })
-          .then(() => this.$store.dispatch("eventCenter/eventTunnel"));
+          .then(() => {
+            return this.getToken();
+          })
+          .then(() => {
+            return this.eventTunnel();
+          })
+          .finally(() => {
+            return this.setLoading(false);
+          });
       } else {
         this.$store.dispatch("eventCenter/close");
       }

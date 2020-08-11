@@ -12,7 +12,7 @@ example:## Run example
 cleanup:## Clean up rabbitmq's queue and exchange after run example
 	if ! [ -d tmp ];then mkdir tmp; fi;
 	- rabbitmqctl list_queues > tmp/del_q
-	- cat tmp/del_q | awk '/main.EventTest.*/ {system("rabbitmqctl delete_queue " $$1)}'
+	- cat tmp/del_q | awk '/main.Event.*/ {system("rabbitmqctl delete_queue " $$1)}'
 	rm tmp/del_q
 	rabbitmqadmin delete exchange name='main.EventTest'
 

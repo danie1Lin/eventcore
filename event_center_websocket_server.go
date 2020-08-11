@@ -1,19 +1,22 @@
 package eventcore
 
 import (
+	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
-	"path"
 	"sync"
+
+	"runtime/debug"
 
 	"github.com/daniel840829/eventcore/proto"
 	"github.com/go-kit/kit/log/level"
 	"github.com/gobwas/ws"
 	"github.com/gobwas/ws/wsutil"
 	"github.com/google/uuid"
+	"github.com/gorilla/handlers"
 	"github.com/gorilla/mux"
+	"github.com/pkg/errors"
 )
 
 type EventCenterWebsocketServer struct {
@@ -24,17 +27,7 @@ type EventCenterWebsocketServer struct {
 	EventCenter        *EventCenterCluster
 }
 
-func GetClientID(r *http.Request) string {
-	id, err := r.Cookie("client_id")
-	if err != nil {
-		level.Error(Logger).Log("error", err)
-		return ""
-	}
-	return id.Value
-}
-
 func StartWebsocketServer(center *EventCenterCluster, port string) {
-
 	s := &EventCenterWebsocketServer{
 		EventCenter:        center,
 		clients:            &sync.Map{},
@@ -42,107 +35,158 @@ func StartWebsocketServer(center *EventCenterCluster, port string) {
 		tokens:             &sync.Map{},
 	}
 	center.server = s
-	r := mux.NewRouter()
-	r.HandleFunc("/{file:[^\\.]+\\.[^\\.]+}", func(w http.ResponseWriter, r *http.Request) {
-		vars := mux.Vars(r)
-		http.ServeFile(w, r, path.Join("./web/dist/", vars["file"]))
-	}).Methods("GET")
+	s.Init(port)
+}
 
-	r.HandleFunc("/subscript", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Add("Access-Control-Allow-Origin", "*")
+func (s *EventCenterWebsocketServer) Init(port string) {
+	route := mux.NewRouter()
+
+	Handle(route, "/login", func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]string{"clientID": uuid.New().String()})
+	}).Methods("POST")
+
+	Handle(route, "/events", func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(GetEventInfoList())
+	}).Methods("Get")
+
+	Handle(route, "/subscript", func(w http.ResponseWriter, r *http.Request) {
+		clientID := GetClientID(r)
+		if clientID == "" {
+			panic("no client id")
+		}
+		eventList := []string{}
+		s.clientSubscription.Range(func(key, value interface{}) bool {
+			list := value.(*EventCenterClientList)
+			if list.Find(clientID) == -1 {
+				return true
+			}
+			eventList = append(eventList, string(key.(EventType)))
+			return true
+		})
+		if err := json.NewEncoder(w).Encode(eventList); err != nil {
+			panic(err)
+		}
+	}, OPTION_AUTH).Methods("GET")
+	Handle(route, "/subscript/cancel", func(w http.ResponseWriter, r *http.Request) {
 		info := &proto.SubscriptInfo{}
 		err := json.NewDecoder(r.Body).Decode(&info)
 		if err != nil {
-			level.Error(Logger).Log("error", err)
-			return
+			panic(err)
 		}
-		if info.ClientID == "" {
-			info.ClientID = uuid.New().String()
+		ClientID := GetClientID(r)
+		if ClientID == "" {
+			panic("no client id")
 		}
+		if v, ok := s.clientSubscription.Load(EventType(info.EventType)); ok {
+			list := v.(*EventCenterClientList)
+			list.Remove(ClientID)
+		} else {
+			level.Warn(Logger).Log("error", "event not subscript", "event_type", info.EventType)
+		}
+		result := &proto.SubscriptResult{
+			Success: true,
+		}
+		if err := json.NewEncoder(w).Encode(result); err != nil {
+			panic(err)
+		}
+		return
+	}, OPTION_AUTH).Methods("POST")
+	Handle(route, "/eventTunnel/token", func(w http.ResponseWriter, r *http.Request) {
+		clientID := GetClientID(r)
+		if clientID == "" {
+			panic("no client id")
+		}
+		if err := json.NewEncoder(w).Encode(map[string]string{"token": s.GetToken(clientID)}); err != nil {
+			panic(err)
+		}
+	}, OPTION_AUTH).Methods("GET")
+	Handle(route, "/subscript", func(w http.ResponseWriter, r *http.Request) {
+		clientID := GetClientID(r)
+		if clientID == "" {
+			panic("no client id")
+		}
+		info := &proto.SubscriptInfo{}
+		err := json.NewDecoder(r.Body).Decode(&info)
+		if err != nil {
+			panic(err)
+		}
+		defer r.Body.Close()
 
 		actual, _ := s.clientSubscription.LoadOrStore(EventType(info.EventType), NewEventCenterClientList())
 		list := actual.(*EventCenterClientList)
 		result := &proto.SubscriptResult{
-			ClientID: info.ClientID,
+			Success: true,
 		}
-		if !list.AppendIfNonExist(info.ClientID) {
+		if !list.AppendIfNonExist(clientID) {
 			result.Success = false
-			result.Error = fmt.Sprintf("client id %s duplicated", info.ClientID)
+			result.Error = fmt.Sprintf("client id %s duplicated", clientID)
 		} else {
-
-			token := uuid.New().String()
-			actaulToken, _ := s.tokens.LoadOrStore(info.ClientID, token)
-			result.Token = actaulToken.(string)
-
-			Logger.Log("Get subscriber")
-			s.EventCenter.Subscribe(EventType(info.EventType), func(e Event) error {
-				level.Info(Logger).Log("to websocket client", e)
-				return nil
-			}, info.EventType)
-			result.Success = true
+			s.EventCenter.Subscribe(EventType(info.EventType), func(e Event) error { return nil }, fmt.Sprintf("websocketClient-%s", clientID))
 		}
+
 		data, err := json.Marshal(result)
 		if err != nil {
-			level.Error(Logger).Log("error", err)
-			return
+			panic(err)
 		}
-		// http.SetCookie(w, &http.Cookie{
-		// 	Name:  "client_id",
-		// 	Value: info.ClientID,
-		// })
 		w.Write(data)
-	}).Methods("POST")
-	r.HandleFunc("/event_tunnel", func(w http.ResponseWriter, r *http.Request) {
+	}, OPTION_AUTH).Methods("POST")
+	Handle(route, "/event_tunnel", func(w http.ResponseWriter, r *http.Request) {
 		v := r.URL.Query()
 		token := v.Get("token")
-		clientID := ""
-		s.tokens.Range(func(key, value interface{}) bool {
-			if value.(string) == token {
-				clientID = key.(string)
-				s.tokens.Delete(clientID)
-				return false
-			}
-			return true
-		})
-
+		clientID := s.ConsumeToken(token)
 		if clientID == "" {
-			err := errors.New("no client ID")
-			level.Error(Logger).Log("error", err)
-			return
+			panic("no client ID")
 		}
-
 		conn, _, _, err := ws.UpgradeHTTP(r, w)
 		if err != nil {
-			// handle error
-			level.Error(Logger).Log("error", err)
+			panic(err)
 		}
-		go func() {
-			_, isLoaded := s.clients.LoadOrStore(clientID, &EventCenterClient{ID: clientID, conn: conn})
-			if isLoaded {
-				err = fmt.Errorf("not support multi tunnel for same client id: %s", clientID)
-				level.Error(Logger).Log("error", err)
-				return
-			}
-			defer func() {
-				s.clients.Delete(clientID)
-			}()
-			for {
-				payload, _, err := wsutil.ReadClientData(conn)
-				if err != nil {
-					level.Error(Logger).Log("error", err, "client id", clientID, "message", "received error")
-					break
-				}
-				var e Event = &EventBase{}
-				e, err = e.Unserialize(payload)
-				if err != nil {
-					level.Error(Logger).Log("error", err, "client id", clientID, "message", "received error")
-					break
-				}
-				s.EventCenter.Emit(e)
+		_, isLoaded := s.clients.LoadOrStore(clientID, &EventCenterClient{ID: clientID, conn: conn})
+		if isLoaded {
+			err = fmt.Errorf("not support multi tunnel for same client id: %s", clientID)
+			panic(err)
+		}
+		defer func() {
+			s.removeClient(clientID)
+			if err := recover(); err != nil {
+				panic(err)
 			}
 		}()
+		for {
+			payload, _, err := wsutil.ReadClientData(conn)
+			if err != nil {
+				level.Error(Logger).Log("error", err, "client id", clientID, "message", "received error")
+				panic(err)
+			}
+			var e Event = &EventBase{}
+			e, err = e.Unserialize(payload)
+			if err != nil {
+				level.Error(Logger).Log("error", err, "client id", clientID, "message", "received error")
+				panic(err)
+			}
+			e.AddNode(DispatcherInfo{
+				ID:   clientID,
+				Type: "WebsocketClient",
+				Name: "WebsocketClient",
+			})
+			s.EventCenter.Emit(e)
+		}
 	})
-	http.ListenAndServe(fmt.Sprintf(":%s", port), r)
+	http.ListenAndServe(fmt.Sprintf(":%s", port), handlers.CORS(
+		handlers.AllowedHeaders([]string{"Authorization", "X-Client-ID", "Content-Type"}),
+		handlers.AllowedOrigins([]string{"http://localhost:8080"}),
+		handlers.AllowedMethods([]string{"POST", "GET", "PUT"}),
+		handlers.AllowCredentials(),
+	)(route))
+}
+
+func (s *EventCenterWebsocketServer) removeClient(clientID string) {
+	s.clients.Delete(clientID)
+	s.clientSubscription.Range(func(k, v interface{}) bool {
+		clientsList := v.(*EventCenterClientList)
+		clientsList.Remove(clientID)
+		return true
+	})
 }
 
 func (s *EventCenterWebsocketServer) GetDispatcherInfo() DispatcherInfo {
@@ -180,4 +224,88 @@ func (s *EventCenterWebsocketServer) Emit(event Event) {
 			return true
 		})
 	}
+}
+
+func (s *EventCenterWebsocketServer) GetToken(clientID string) string {
+	token := uuid.New().String()
+	actaulToken, _ := s.tokens.LoadOrStore(clientID, token)
+	return actaulToken.(string)
+}
+
+func (s *EventCenterWebsocketServer) ConsumeToken(token string) string {
+	clientID := ""
+	s.tokens.Range(func(key, value interface{}) bool {
+		if value.(string) == token {
+			clientID = key.(string)
+			s.tokens.Delete(clientID)
+			return false
+		}
+		return true
+	})
+	return clientID
+}
+
+func GetClientID(r *http.Request) string {
+	return r.Context().Value("ClientID").(string)
+}
+
+func Authorization(handler http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if clientID := r.Header.Get("X-Client-ID"); clientID == "" {
+			w.WriteHeader(401)
+			if err := json.NewEncoder(w).Encode(map[string]string{"error": "no client id provided"}); err != nil {
+				level.Error(Logger).Log("error", err)
+			}
+			return
+		} else {
+			handler(w, r.WithContext(context.WithValue(r.Context(), "ClientID", clientID)))
+		}
+	}
+}
+
+func DontPanic(handler http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		defer func() {
+			if err := recover(); err != nil {
+				if v, ok := err.(error); ok {
+					v = errors.WithStack(v)
+					level.Error(Logger).Log("error", err, "trace", fmt.Sprintf("%+v", err))
+				} else {
+					level.Error(Logger).Log("error", err, "trace", string(debug.Stack()))
+				}
+
+				w.WriteHeader(500)
+				errorMsg := ""
+				switch v := err.(type) {
+				case error:
+					errorMsg = v.Error()
+				case string:
+					errorMsg = v
+				case fmt.Stringer:
+					errorMsg = v.String()
+				default:
+					errorMsg = fmt.Sprintf("%+v", err)
+				}
+				json.NewEncoder(w).Encode(map[string]interface{}{"error": errorMsg})
+			}
+		}()
+		handler(w, r)
+	}
+}
+
+type HandlerOption string
+
+const (
+	OPTION_AUTH HandlerOption = "auth"
+)
+
+func Handle(router *mux.Router, path string, handler http.HandlerFunc, opts ...HandlerOption) *mux.Route {
+	for _, opt := range opts {
+		switch opt {
+		case OPTION_AUTH:
+			handler = Authorization(handler)
+		}
+	}
+	handler = DontPanic(handler)
+	return router.HandleFunc(path, handler)
 }
